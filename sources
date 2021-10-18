@@ -1,0 +1,11 @@
+TARGETNAME=Driver
+TARGETTYPE=DRIVER
+#DRIVERTYPE=WDM
+TARGETPATH=obj
+SOURCES=init.c\
+	ntstring.c\
+	ufs.c\
+	ntprint.c
+
+# TARGETLIBS=
+# INCLUDE=
