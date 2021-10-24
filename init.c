@@ -27,11 +27,11 @@ char *glWriteBuffer;
 ULONG glSizeWriteBuffer;
 
 
-#define FILE_NAME_1 L"dir"
-#define DIR_NAME    FILE_NAME_1
-#define FILE_NAME_2 L"file2"
-#define FILE_NAME   FILE_NAME_2
-#define FILES_COUNT 2
+//#define FILE_NAME_1 L"dir"
+//#define DIR_NAME    FILE_NAME_1
+//#define FILE_NAME_2 L"file2"
+//#define FILE_NAME   FILE_NAME_2
+//#define FILES_COUNT 2
 
 #define VOLUME_LABEL L"UFS_VOLUME"
 #define FS_NAME     L"UFS"
@@ -169,7 +169,7 @@ VOID DriverUnload (IN PDRIVER_OBJECT pDriverObject){
     IoDeleteDevice( pDriverObject->DeviceObject);
 
 
-    //FreeUFS(&glUniformFileSystem);
+    FreeUFS(&glUniformFileSystem);
 
     // удаляем резервный список
     ExDeletePagedLookasideList(&glPagedFileList);
@@ -461,6 +461,8 @@ NTSTATUS DispatchWrite(IN PDEVICE_OBJECT pDeviceObject, IN PIRP pIrp) {
     OpenFileEntry* fEntry = NULL;
     ParseNameEntry parseNames;
     ParseNameEntry* fileName;
+    PLIST_ENTRY link;
+    ParseNameEntry* nEntryFor;
 
     pIrpStack = IoGetCurrentIrpStackLocation(pIrp);
     // pIrpStack->Parameters.Write.Length
@@ -489,6 +491,22 @@ NTSTATUS DispatchWrite(IN PDEVICE_OBJECT pDeviceObject, IN PIRP pIrp) {
 
             dHeadEntry = IsFoundDirEntry2(&glUniformFileSystem, &parseNames);
 
+
+            DbgPrint("%p %p %p %p %p %p",parseNames.link.Blink, &parseNames.link, parseNames.link.Flink, parseNames.link.Flink->Flink, parseNames.link.Flink->Flink->Flink, parseNames.link.Flink->Flink->Flink->Flink);
+            for (link = parseNames.link.Flink; link != &parseNames.link; link = link->Flink) {
+                nEntryFor = CONTAINING_RECORD(link, ParseNameEntry, link);
+                DbgPrint("[DIR COUNT] %wZ", &nEntryFor->name);
+                if (nEntryFor->name.Length == dHeadEntry->name.Length) {
+                    if (dHeadEntry->name.Length == RtlCompareMemory(dHeadEntry->name.Buffer, nEntryFor->name.Buffer, dHeadEntry->name.Length)) {
+                        DbgPrint("[SELECT DIR FOR] %wZ", &dHeadEntry->name);
+                        DbgPrint("%p %p", link, &parseNames.link);
+                        if (link->Blink->Blink != &parseNames.link) {
+                            return STATUS_ACCESS_DENIED;
+                        } else break;
+                    }
+                }
+            }
+
             fileName = (ParseNameEntry*)CONTAINING_RECORD(parseNames.link.Flink, ParseNameEntry, link);
 
             if (fileName->name.Length == dHeadEntry->name.Length) {
@@ -514,7 +532,6 @@ NTSTATUS DispatchWrite(IN PDEVICE_OBJECT pDeviceObject, IN PIRP pIrp) {
             if (fEntry == NULL) {
                 fEntry = (OpenFileEntry*)ExAllocateFromPagedLookasideList(&glPagedFileList);
                 InsertTailList(&dHeadEntry->file, &fEntry->link);
-
 
 
                 //fEntry->name.Length = pIrpStack->FileObject->FileName.Length + 2;
@@ -1330,10 +1347,14 @@ NTSTATUS DispathCreateDirectory2(ParseNameEntry* names) {
 
     NTSTATUS status = STATUS_SUCCESS;
     PWCHAR copyDirName;
+    PLIST_ENTRY link;
     ParseNameEntry* nEntry;
+    ParseNameEntry* nEntryFor = names;
     OpenDirEntry* dEntry;
     OpenFileEntry* fEntry;
     OpenDirEntry* dHeadEntry = IsFoundDirEntry2(&glUniformFileSystem, names);
+
+    DbgPrint("[HEAD DIR] %wZ", &dHeadEntry->name);
 
     nEntry = (ParseNameEntry*)CONTAINING_RECORD(names->link.Flink, ParseNameEntry, link);
     if (dHeadEntry) {
@@ -1345,42 +1366,88 @@ NTSTATUS DispathCreateDirectory2(ParseNameEntry* names) {
             }
 
         }
+        // елси есть уже директория с таким именем
         if (dHeadEntry->name.Length == nEntry->name.Length) {
             if (dHeadEntry->name.Length == RtlCompareMemory(dHeadEntry->name.Buffer, nEntry->name.Buffer, dHeadEntry->name.Length)) {
                 return STATUS_ACCESS_DENIED;
             }
         }
 
-        //DbgPrint("DHEADENTRY ---- %wZ", &dHeadEntry->name);
-
-        if (dHeadEntry->drank == RANK_UFS) {
-            InitializeListHead(&dHeadEntry->dir);
+        for (link = names->link.Flink; link != &names->link; link = link->Flink) {
+            nEntryFor = CONTAINING_RECORD(link, ParseNameEntry, link);
+            DbgPrint("[DIR COUNT] %wZ", &nEntryFor->name);
+            if (nEntryFor->name.Length == dHeadEntry->name.Length) {
+                if (dHeadEntry->name.Length == RtlCompareMemory(dHeadEntry->name.Buffer, nEntryFor->name.Buffer, dHeadEntry->name.Length)) {
+                    DbgPrint("[SELECT DIR FOR] %wZ", &dHeadEntry->name);
+                    if (link == &names->link) {
+                        return STATUS_ACCESS_DENIED;
+                    }
+                    nEntryFor = (ParseNameEntry*)CONTAINING_RECORD(link->Blink, ParseNameEntry, link);
+                    break;
+                }
+            }
         }
-        dEntry = (OpenDirEntry*)ExAllocateFromPagedLookasideList(&glPagedDirList);
 
-        dEntry->name.Length = nEntry->name.Length;
-        dEntry->name.MaximumLength = dEntry->name.Length;
-        copyDirName = ExAllocatePool(PagedPool, dEntry->name.Length);
-        if (!copyDirName) {
-            return STATUS_MEMORY_NOT_ALLOCATED;
+        for (link = &nEntryFor->link; link != nEntry->link.Blink; link = link->Blink) {
+            nEntryFor = CONTAINING_RECORD(link, ParseNameEntry, link);
+            DbgPrint("[DIR COUNT FOR] %wZ", &nEntryFor->name);
+            DbgPrint("[DIR HEAD FOR] %wZ", &dHeadEntry->name);
+
+
+            if (dHeadEntry->drank == RANK_UFS) {
+                InitializeListHead(&dHeadEntry->dir);
+            }
+            dEntry = (OpenDirEntry*)ExAllocateFromPagedLookasideList(&glPagedDirList);
+
+            dEntry->name.Length = nEntryFor->name.Length;
+            dEntry->name.MaximumLength = dEntry->name.Length;
+            copyDirName = ExAllocatePool(PagedPool, dEntry->name.Length);
+            if (!copyDirName) {
+                return STATUS_MEMORY_NOT_ALLOCATED;
+            }
+            dEntry->name.Buffer = copyDirName;
+
+            RtlZeroMemory(dEntry->name.Buffer, dEntry->name.Length);
+            RtlCopyUnicodeString(&dEntry->name, &nEntryFor->name);
+
+
+            GetSystemTime(&dEntry->creationTime);
+            GetSystemTime(&dEntry->changeTime);
+            dEntry->drank = RANK_UFS;
+            dEntry->frank = RANK_UFS;
+            dEntry->size.QuadPart = 0;
+            dHeadEntry->drank++;
+
+            //DbgPrint("HEad %wZ", &dHeadEntry->name);
+            InsertTailList(&dHeadEntry->dir, &dEntry->link);
+
+            DbgPrint("[*] Successful create directory %wZ", &dEntry->name);
+
+            dHeadEntry = dEntry;
         }
-        dEntry->name.Buffer = copyDirName;
 
-        RtlZeroMemory(dEntry->name.Buffer, dEntry->name.Length);
-        RtlCopyUnicodeString(&dEntry->name, &nEntry->name);
+        //if (dHeadEntry->drank == RANK_UFS) {
+        //    InitializeListHead(&dHeadEntry->dir);
+        //}
+        //dEntry = (OpenDirEntry*)ExAllocateFromPagedLookasideList(&glPagedDirList);
+        //dEntry->name.Length = nEntry->name.Length;
+        //dEntry->name.MaximumLength = dEntry->name.Length;
+        //copyDirName = ExAllocatePool(PagedPool, dEntry->name.Length);
+        //if (!copyDirName) {
+        //    return STATUS_MEMORY_NOT_ALLOCATED;
+        //}
+        //dEntry->name.Buffer = copyDirName;
+        //RtlZeroMemory(dEntry->name.Buffer, dEntry->name.Length);
+        //RtlCopyUnicodeString(&dEntry->name, &nEntry->name);
+        //GetSystemTime(&dEntry->creationTime);
+        //GetSystemTime(&dEntry->changeTime);
+        //dEntry->drank = RANK_UFS;
+        //dEntry->frank = RANK_UFS;
+        //dEntry->size.QuadPart = 0;
+        //dHeadEntry->drank++;
+        ////DbgPrint("HEad %wZ", &dHeadEntry->name);
+        //InsertTailList(&dHeadEntry->dir, &dEntry->link);
 
-
-        GetSystemTime(&dEntry->creationTime);
-        GetSystemTime(&dEntry->changeTime);
-        dEntry->drank = RANK_UFS;
-        dEntry->frank = RANK_UFS;
-        dEntry->size.QuadPart = 0;
-        dHeadEntry->drank++;
-
-        //DbgPrint("HEad %wZ", &dHeadEntry->name);
-        InsertTailList(&dHeadEntry->dir, &dEntry->link);
-
-        DbgPrint("[*] Successful create directory %wZ", &dEntry->name);
         PrintUFS(&glUniformFileSystem);
     }
     else {

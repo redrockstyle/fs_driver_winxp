@@ -132,10 +132,9 @@ OpenDirEntry* IsFoundDirEntry2(OpenDirEntry* glUFS, ParseNameEntry* names) {
             while (dLink != &dHeadEntry->dir && nLink != &names->link) {
                 dEntry = CONTAINING_RECORD(dLink, OpenDirEntry, link);
                 nEntry = CONTAINING_RECORD(nLink, ParseNameEntry, link);
-                //DbgPrint("[NAME PARSE] %wZ", &entry->name);
 
-                //DbgPrint("111111111111 NAME %d %wZ", nEntry->name.Length, &nEntry->name);
-                //DbgPrint("111111111111 DIRUFS %d %wZ", dEntry->name.Length, &dEntry->name);
+                //DbgPrint("[NAME DIR] %d %wZ", dEntry->name.Length, &dEntry->name);
+                //DbgPrint("[NAME PARSE] %d %wZ", nEntry->name.Length, &nEntry->name);
 
                 if (dEntry->name.Length == nEntry->name.Length) {
                     //DbgPrint("!!!!");
@@ -149,7 +148,7 @@ OpenDirEntry* IsFoundDirEntry2(OpenDirEntry* glUFS, ParseNameEntry* names) {
                             dLink = dEntry->dir.Flink;
                         }
                         else {
-                            //DbgPrint("%p %p %p %p %p", &names->link, nLink, nLink->Flink, nLink->Blink, nLink->Blink->Blink);
+                            //DbgPrint("[LINKS] %p %p %p %p %p", &names->link, nLink, nLink->Flink, nLink->Blink, nLink->Blink->Blink);
                             return dEntry;
                         }
                     }
@@ -183,8 +182,8 @@ void FreeUFS(OpenDirEntry* glUFS) {
         while (!IsListEmpty(&glUFS->file)) {
             pLink = RemoveHeadList(&glUFS->file);
             fEntry = CONTAINING_RECORD(pLink, OpenFileEntry, link);
-            ExFreePool(fEntry->buffer);
-            //RtlFreeAnsiString(&fEntry->name);
+            //ExFreePool(fEntry->buffer);
+            RtlFreeUnicodeString(&fEntry->name);
             ExFreeToPagedLookasideList(&glPagedFileList, fEntry);
         }
     }
@@ -196,8 +195,8 @@ void FreeUFS(OpenDirEntry* glUFS) {
                 FreeUFS(dEntry);
                 dEntry->drank--;
             }
-            ExFreePool(&dEntry->name.Buffer);
-            //RtlFreeAnsiString(&dEntry->name);
+            //ExFreePool(&dEntry->name.Buffer);
+            RtlFreeUnicodeString(&dEntry->name);
             ExFreeToPagedLookasideList(&glPagedDirList, dEntry);
         }
     }
